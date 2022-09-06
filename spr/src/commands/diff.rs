@@ -19,7 +19,7 @@ use crate::{
     utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
-use indoc::{formatdoc, indoc};
+use indoc::{formatdoc};
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
@@ -203,26 +203,6 @@ async fn diff_impl(
                 "Pull request is closed. If you want to open a new one, \
                  remove the 'Pull Request' section from the commit message."
             )));
-        }
-
-        if !opts.update_message {
-            let mut pull_request_updates: PullRequestUpdate =
-                Default::default();
-            pull_request_updates.update_message(pull_request, message);
-
-            if !pull_request_updates.is_empty() {
-                output(
-                    "⚠️",
-                    indoc!(
-                        "The Pull Request's title/message differ from the \
-                         local commit's message.
-                         Use `spr diff --update-message` to overwrite the \
-                         title and message on GitHub with the local message, \
-                         or `spr amend` to go the other way (rewrite the local \
-                         commit message with what is on GitHub)."
-                    ),
-                )?;
-            }
         }
     }
 
@@ -622,6 +602,7 @@ async fn diff_impl(
         run_command(&mut cmd)
             .await
             .reword("git push failed".to_string())?;
+
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
