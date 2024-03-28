@@ -14,12 +14,12 @@ use crate::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
-    message::{validate_commit_message, MessageSection},
+    message::{build_commit_message, validate_commit_message, MessageSection},
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
-use indoc::{formatdoc};
+use indoc::formatdoc;
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
@@ -272,9 +272,22 @@ async fn diff_impl(
 
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
-        None => config.new_github_branch(
-            &config.get_new_branch_name(&git.get_all_ref_names()?, title),
-        ),
+        None => {
+            let branch_name = if config.ask_for_branches {
+                let initial_text = config.branch_prefix.clone();
+                tokio::task::spawn_blocking(move || {
+                    dialoguer::Input::<String>::new()
+                        .with_prompt("Branch name (leave empty to abort)")
+                        .with_initial_text(initial_text)
+                        .allow_empty(true)
+                        .interact_text()
+                })
+                .await??
+            } else {
+                config.get_new_branch_name(&git.get_all_ref_names()?, title)
+            };
+            config.new_github_branch(&branch_name)
+        }
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -463,7 +476,6 @@ async fn diff_impl(
     if pull_request.is_some() && github_commit_message.is_none() {
         let input = {
             let message_on_prompt = message_on_prompt.clone();
-
             tokio::task::spawn_blocking(move || {
                 dialoguer::Input::<String>::new()
                     .with_prompt("Message (leave empty to abort)")
@@ -500,14 +512,10 @@ async fn diff_impl(
     // Create the new commit
     let pr_commit = git.create_derived_commit(
         local_commit.oid,
-        &format!(
-            "{}\n\nCreated using spr {}",
-            github_commit_message
-                .as_ref()
-                .map(|s| &s[..])
-                .unwrap_or("[𝘀𝗽𝗿] initial version"),
-            env!("CARGO_PKG_VERSION"),
-        ),
+        github_commit_message
+            .as_ref()
+            .map(|s| &s[..])
+            .unwrap_or(build_commit_message(message).as_str()),
         new_head_tree,
         &pr_commit_parents[..],
     )?;
@@ -602,7 +610,6 @@ async fn diff_impl(
         run_command(&mut cmd)
             .await
             .reword("git push failed".to_string())?;
-
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
