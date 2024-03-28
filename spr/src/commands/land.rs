@@ -11,7 +11,7 @@ use std::{io::Write, process::Stdio, time::Duration};
 use crate::{
     error::{Error, Result, ResultExt},
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
-    message::build_github_body_for_merging,
+    message::{build_github_body_for_merging, MessageSection},
     output::{output, write_commit_title},
     utils::run_command,
 };
@@ -303,12 +303,17 @@ pub async fn land(
             // used a base branch with this Pull Request or not. We have made sure the
             // target of the Pull Request is set to the master branch. So let GitHub do
             // the merge now!
+            let title = match prepared_commit.message.get(&MessageSection::Title) {
+                Some(title) => title,
+                None => return Err(Error::new("Commit message did not have title."))
+            };
+            
             octocrab::instance()
                 .pulls(&config.owner, &config.repo)
                 .merge(pull_request_number)
                 .method(octocrab::params::pulls::MergeMethod::Squash)
-                .title(pull_request.title)
-                .message(build_github_body_for_merging(&pull_request.sections))
+                .title(title)
+                .message(build_github_body_for_merging(&prepared_commit.message))
                 .sha(format!("{}", pr_head_oid))
                 .send()
                 .await
