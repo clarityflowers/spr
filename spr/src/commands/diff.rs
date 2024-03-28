@@ -14,12 +14,12 @@ use crate::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
-    message::{validate_commit_message, MessageSection},
+    message::{build_commit_message, validate_commit_message, MessageSection},
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
-use indoc::{formatdoc};
+use indoc::formatdoc;
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
@@ -500,14 +500,10 @@ async fn diff_impl(
     // Create the new commit
     let pr_commit = git.create_derived_commit(
         local_commit.oid,
-        &format!(
-            "{}\n\nCreated using spr {}",
-            github_commit_message
-                .as_ref()
-                .map(|s| &s[..])
-                .unwrap_or("[𝘀𝗽𝗿] initial version"),
-            env!("CARGO_PKG_VERSION"),
-        ),
+        github_commit_message
+            .as_ref()
+            .map(|s| &s[..])
+            .unwrap_or(build_commit_message(message).as_str()),
         new_head_tree,
         &pr_commit_parents[..],
     )?;
@@ -602,7 +598,6 @@ async fn diff_impl(
         run_command(&mut cmd)
             .await
             .reword("git push failed".to_string())?;
-
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
