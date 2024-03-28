@@ -45,6 +45,10 @@ pub struct DiffOptions {
     /// on any intermediate changes between the master branch and this commit.
     #[clap(long)]
     cherry_pick: bool,
+
+    /// Submit this commit using the given branch name
+    #[clap(long)]
+    branch_name: Option<String>,
 }
 
 pub async fn diff(
@@ -292,9 +296,25 @@ async fn diff_impl(
 
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
-        None => config.new_github_branch(
-            &config.get_new_branch_name(&git.get_all_ref_names()?, title),
-        ),
+        None => {
+            let branch_name =
+                if let Some(branch_name) = opts.branch_name.clone() {
+                    branch_name
+                } else if config.ask_for_branches {
+                    let initial_text = config.branch_prefix.clone();
+                    tokio::task::spawn_blocking(move || {
+                        dialoguer::Input::<String>::new()
+                            .with_prompt("Branch name (leave empty to abort)")
+                            .with_initial_text(initial_text)
+                            .allow_empty(true)
+                            .interact_text()
+                    })
+                    .await??
+                } else {
+                    config.get_new_branch_name(&git.get_all_ref_names()?, title)
+                };
+            config.new_github_branch(&branch_name)
+        }
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -483,7 +503,6 @@ async fn diff_impl(
     if pull_request.is_some() && github_commit_message.is_none() {
         let input = {
             let message_on_prompt = message_on_prompt.clone();
-
             tokio::task::spawn_blocking(move || {
                 dialoguer::Input::<String>::new()
                     .with_prompt("Message (leave empty to abort)")
